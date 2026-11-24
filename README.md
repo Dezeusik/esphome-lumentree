@@ -195,5 +195,8 @@ a `MODBUS exception` warning is logged and the remaining requests continue norma
 
 ## References
 
+- Register map recovered from the LightEarth app (registers 33, 54, 62, 82, 111, 112, 124, 125, 147, cell block 250-299):
+  [ngoviet/lumentreeHA docs/api/REGISTER_MAP.md](https://github.com/ngoviet/lumentreeHA/blob/main/docs/api/REGISTER_MAP.md)
+
 - [Lumentree BLE Protocol Specification](https://github.com/syssi/esphome-lumentree/blob/main/docs/protocol-design.md)
 - https://github.com/MacGH23/lumentree-rs232-lib

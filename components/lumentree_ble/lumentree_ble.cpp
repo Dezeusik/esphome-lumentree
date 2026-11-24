@@ -372,6 +372,9 @@ void LumentreeBle::decode_(const std::vector<uint8_t> &data) {
     case REQUEST_BMS:
       this->decode_bms_registers_(data);
       break;
+    case REQUEST_CELLS:
+      this->decode_cell_registers_(data);
+      break;
     default:
       ESP_LOGW(TAG, "Unknown request type: %d", this->current_request_type_);
       break;
@@ -387,8 +390,10 @@ void LumentreeBle::advance_request_() {
   // Move to next request
   this->current_request_type_ = static_cast<RequestType>(this->current_request_type_ + 1);
 
-  // The BMS block is only requested if at least one BMS entity is configured
+  // Optional blocks are only requested if at least one of their entities is configured
   if (this->current_request_type_ == REQUEST_BMS && !this->bms_requested_)
+    this->current_request_type_ = REQUEST_CELLS;
+  if (this->current_request_type_ == REQUEST_CELLS && !this->cells_requested_)
     this->current_request_type_ = REQUEST_COMPLETE;
 
     // Send next request after a short delay
@@ -499,8 +504,8 @@ void LumentreeBle::decode_system_status_registers_(const std::vector<uint8_t> &d
       case 61:  // 0x3D: Battery Power (signed)
         this->publish_state_(this->battery_power_sensor_, (int16_t) register_value * 1.0f);
         break;
-      case 67:  // 0x43: Load Power
-        this->publish_state_(this->load_power_sensor_, register_value * 1.0f);
+      case 67:  // 0x43: Load Power (signed, per the LightEarth app)
+        this->publish_state_(this->load_power_sensor_, (int16_t) register_value * 1.0f);
         break;
       case 68:  // 0x44: Operation Mode
         this->publish_state_(this->operation_mode_text_sensor_, this->operation_mode_to_string_(register_value));
@@ -758,6 +763,10 @@ void LumentreeBle::send_next_request_() {
       ESP_LOGI(TAG, "Requesting Lithium BMS registers (185-197)");
       this->read_registers(LUMENTREE_MODBUS_FUNCTION_READ, BMS_REGISTER_START, BMS_REGISTER_COUNT);
       break;
+    case REQUEST_CELLS:
+      ESP_LOGI(TAG, "Requesting battery cell voltage registers (250-299)");
+      this->read_registers(LUMENTREE_MODBUS_FUNCTION_READ, CELL_REGISTER_START, CELL_REGISTER_COUNT);
+      break;
     case REQUEST_COMPLETE:
       ESP_LOGI(TAG, "All register requests completed");
       break;
@@ -874,6 +883,38 @@ void LumentreeBle::decode_bms_registers_(const std::vector<uint8_t> &data) {
     ESP_LOGV(TAG, "BMS Register %u: 0x%04X (%u)", register_address, register_value, register_value);
     this->publish_register_bindings_(register_address, register_value);
   }
+}
+
+void LumentreeBle::decode_cell_registers_(const std::vector<uint8_t> &data) {
+  uint8_t byte_count = data[2];
+  ESP_LOGI(TAG, "Decoding battery cell voltage registers (250-299)");
+
+  float min_voltage = 0.0f, max_voltage = 0.0f, sum = 0.0f;
+  uint8_t cells = 0;
+
+  for (uint8_t i = 0; i < byte_count / 2; i++) {
+    uint16_t register_value = (uint16_t(data[3 + i * 2]) << 8) | uint16_t(data[3 + i * 2 + 1]);
+    this->publish_register_bindings_(CELL_REGISTER_START + i, register_value);
+
+    // Unused cell slots read 0 (or garbage); only plausible cell voltages count
+    float voltage = register_value * 0.001f;
+    if (voltage <= 1.0f || voltage >= 5.0f)
+      continue;
+    if (cells == 0 || voltage < min_voltage)
+      min_voltage = voltage;
+    if (cells == 0 || voltage > max_voltage)
+      max_voltage = voltage;
+    sum += voltage;
+    cells++;
+  }
+
+  this->publish_state_(this->cell_count_sensor_, (float) cells);
+  if (cells == 0)
+    return;
+  this->publish_state_(this->min_cell_voltage_sensor_, min_voltage);
+  this->publish_state_(this->max_cell_voltage_sensor_, max_voltage);
+  this->publish_state_(this->delta_cell_voltage_sensor_, max_voltage - min_voltage);
+  this->publish_state_(this->average_cell_voltage_sensor_, sum / cells);
 }
 
 std::string LumentreeBle::generate_device_model_(uint16_t device_type, uint16_t power_rating, bool light_engine) {

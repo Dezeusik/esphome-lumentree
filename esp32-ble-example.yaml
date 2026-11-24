@@ -142,6 +142,29 @@ sensor:
       name: "grid export"
     max_discharge_current_limit:
       name: "max discharge current limit"
+    ac_input_current:
+      name: "ac input current"
+    ac_output_current:
+      name: "ac output current"
+    generator_power:
+      name: "generator power"
+    grid_type:
+      name: "grid type"
+    # Battery cell voltages (registers 250-299), requested only if configured
+    min_cell_voltage:
+      name: "min cell voltage"
+    max_cell_voltage:
+      name: "max cell voltage"
+    delta_cell_voltage:
+      name: "delta cell voltage"
+    average_cell_voltage:
+      name: "average cell voltage"
+    cell_count:
+      name: "cell count"
+    cell_voltage_1:
+      name: "cell voltage 1"
+    cell_voltage_2:
+      name: "cell voltage 2"
     # Lithium BMS block (registers 185-197), requested only if one of these is configured
     bms_protocol:
       name: "bms protocol"
@@ -197,6 +220,8 @@ switch:
       name: "overload auto restart"
     overtemperature_auto_restart:
       name: "overtemperature auto restart"
+    ac_coupling:
+      name: "ac coupling"
 
   - platform: ble_client
     ble_client_id: client0
@@ -236,3 +261,9 @@ number:
       name: "equalization interval setting"
     equalization_duration_setting:
       name: "equalization duration setting"
+    low_capacity_cutoff_setting:
+      name: "low capacity cutoff setting"
+    protecting_recovery_point_setting:
+      name: "protecting recovery point setting"
+    ct_trickle_feed_setting:
+      name: "ct trickle feed setting"

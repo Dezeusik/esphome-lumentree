@@ -77,6 +77,19 @@ CONF_BMS_TEMPERATURE = "bms_temperature"
 CONF_BMS_ALARM = "bms_alarm"
 CONF_BMS_FAULT = "bms_fault"
 CONF_MAX_DISCHARGE_CURRENT_LIMIT = "max_discharge_current_limit"
+CONF_AC_INPUT_CURRENT = "ac_input_current"
+CONF_AC_OUTPUT_CURRENT = "ac_output_current"
+CONF_GENERATOR_POWER = "generator_power"
+CONF_GRID_TYPE = "grid_type"
+
+# Battery cell voltages (holding registers 250-299, mV); summary values are computed on the ESP
+CONF_MIN_CELL_VOLTAGE = "min_cell_voltage"
+CONF_MAX_CELL_VOLTAGE = "max_cell_voltage"
+CONF_DELTA_CELL_VOLTAGE = "delta_cell_voltage"
+CONF_AVERAGE_CELL_VOLTAGE = "average_cell_voltage"
+CONF_CELL_COUNT = "cell_count"
+MAX_CELLS = 24
+CELL_VOLTAGE_REGISTER_START = 250
 
 LumentreeBle = lumentree_ble_ns.class_("LumentreeBle")
 
@@ -265,6 +278,24 @@ SENSOR_DEFS = {
     },
 }
 
+_CELL_VOLTAGE = {
+    "unit_of_measurement": UNIT_VOLT,
+    "accuracy_decimals": 3,
+    "device_class": DEVICE_CLASS_VOLTAGE,
+    "state_class": STATE_CLASS_MEASUREMENT,
+}
+
+CELL_SUMMARY_DEFS = {
+    CONF_MIN_CELL_VOLTAGE: _CELL_VOLTAGE,
+    CONF_MAX_CELL_VOLTAGE: _CELL_VOLTAGE,
+    CONF_DELTA_CELL_VOLTAGE: _CELL_VOLTAGE,
+    CONF_AVERAGE_CELL_VOLTAGE: _CELL_VOLTAGE,
+    CONF_CELL_COUNT: {
+        "accuracy_decimals": 0,
+        "entity_category": ENTITY_CATEGORY_DIAGNOSTIC,
+    },
+}
+
 _DIAGNOSTIC_CODE = {
     "accuracy_decimals": 0,
     "entity_category": ENTITY_CATEGORY_DIAGNOSTIC,
@@ -364,6 +395,49 @@ REGISTER_SENSOR_DEFS = {
     ),
     CONF_BMS_ALARM: (196, 1.0, False, _DIAGNOSTIC_CODE),
     CONF_BMS_FAULT: (197, 1.0, False, _DIAGNOSTIC_CODE),
+    CONF_AC_INPUT_CURRENT: (
+        54,
+        0.01,
+        True,
+        {
+            "unit_of_measurement": UNIT_AMPERE,
+            "accuracy_decimals": 2,
+            "device_class": DEVICE_CLASS_CURRENT,
+            "state_class": STATE_CLASS_MEASUREMENT,
+        },
+    ),
+    CONF_AC_OUTPUT_CURRENT: (
+        62,
+        0.01,
+        True,
+        {
+            "unit_of_measurement": UNIT_AMPERE,
+            "accuracy_decimals": 2,
+            "device_class": DEVICE_CLASS_CURRENT,
+            "state_class": STATE_CLASS_MEASUREMENT,
+        },
+    ),
+    CONF_GENERATOR_POWER: (
+        82,
+        1.0,
+        True,
+        {
+            "unit_of_measurement": UNIT_WATT,
+            "accuracy_decimals": 0,
+            "device_class": DEVICE_CLASS_POWER,
+            "state_class": STATE_CLASS_MEASUREMENT,
+        },
+    ),
+    CONF_GRID_TYPE: (125, 1.0, False, _DIAGNOSTIC_CODE),
+    **{
+        f"cell_voltage_{cell + 1}": (
+            CELL_VOLTAGE_REGISTER_START + cell,
+            0.001,
+            False,
+            _CELL_VOLTAGE,
+        )
+        for cell in range(MAX_CELLS)
+    },
     CONF_MAX_DISCHARGE_CURRENT_LIMIT: (
         157,
         1.0,
@@ -387,6 +461,10 @@ CONFIG_SCHEMA = LUMENTREE_BLE_COMPONENT_SCHEMA.extend(
             cv.Optional(key): sensor.sensor_schema(**defs[3])
             for key, defs in REGISTER_SENSOR_DEFS.items()
         },
+        **{
+            cv.Optional(key): sensor.sensor_schema(**kwargs)
+            for key, kwargs in CELL_SUMMARY_DEFS.items()
+        },
     }
 )
 
@@ -397,6 +475,10 @@ async def to_code(config):
         if key in config:
             conf = config[key]
             sens = await sensor.new_sensor(conf)
+            cg.add(getattr(hub, f"set_{key}_sensor")(sens))
+    for key in CELL_SUMMARY_DEFS:
+        if key in config:
+            sens = await sensor.new_sensor(config[key])
             cg.add(getattr(hub, f"set_{key}_sensor")(sens))
     for key, (register, factor, signed, _) in REGISTER_SENSOR_DEFS.items():
         if key in config:

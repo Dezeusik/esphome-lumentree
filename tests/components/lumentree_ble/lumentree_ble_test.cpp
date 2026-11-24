@@ -205,4 +205,59 @@ TEST(LumentreeBmsTest, WriteAckDuringReadDoesNotCorruptFrame) {
   EXPECT_NEAR(capacity.state, 280.0f, 0.001f);
 }
 
+TEST(LumentreeCellTest, CellVoltagesAndSummary) {
+  TestableRequestState device;
+  sensor::Sensor cell1, cell2, min_voltage, max_voltage, delta, average, count;
+  device.add_register_sensor(&cell1, 250, 0.001f, false);
+  device.add_register_sensor(&cell2, 251, 0.001f, false);
+  device.set_min_cell_voltage_sensor(&min_voltage);
+  device.set_max_cell_voltage_sensor(&max_voltage);
+  device.set_delta_cell_voltage_sensor(&delta);
+  device.set_average_cell_voltage_sensor(&average);
+  device.set_cell_count_sensor(&count);
+  device.set_last_request(LumentreeBle::REQUEST_CELLS);
+  // 4 cells populated, remaining slots read 0
+  feed_chunked(device, make_read_frame(250, 50, {{250, 3312}, {251, 3305}, {252, 3320}, {253, 3301}}));
+
+  EXPECT_NEAR(cell1.state, 3.312f, 0.0001f);
+  EXPECT_NEAR(cell2.state, 3.305f, 0.0001f);
+  EXPECT_NEAR(min_voltage.state, 3.301f, 0.0001f);
+  EXPECT_NEAR(max_voltage.state, 3.320f, 0.0001f);
+  EXPECT_NEAR(delta.state, 0.019f, 0.0001f);
+  EXPECT_NEAR(average.state, 3.3095f, 0.0001f);
+  EXPECT_NEAR(count.state, 4.0f, 0.001f);
+  EXPECT_EQ(device.request(), LumentreeBle::REQUEST_COMPLETE);
+}
+
+TEST(LumentreeCellTest, OptionalBlocksAreSkippedWhenNotConfigured) {
+  TestableRequestState device;
+  sensor::Sensor cell1;
+  device.add_register_sensor(&cell1, 250, 0.001f, false);
+  device.set_last_request(LumentreeBle::REQUEST_DAILY_STATISTICS);
+  std::vector<uint8_t> daily = {0x01, 0x04, 16};
+  for (int i = 0; i < 16; i++)
+    daily.push_back(0);
+  uint16_t crc = crc16(daily.data(), daily.size(), 0xFFFF, 0xA001, false, false);
+  daily.push_back(crc & 0xFF);
+  daily.push_back(crc >> 8);
+  feed_chunked(device, daily);
+
+  // No BMS entity configured -> BMS block skipped, cell block requested
+  EXPECT_EQ(device.request(), LumentreeBle::REQUEST_CELLS);
+}
+
+TEST(LumentreeSystemStatusExtraTest, SignedLoadPowerAndExtendedRegisters) {
+  TestableLumentreeBle device;
+  sensor::Sensor load_power, ac_input_current, generator_power;
+  device.set_load_power_sensor(&load_power);
+  device.add_register_sensor(&ac_input_current, 54, 0.01f, true);
+  device.add_register_sensor(&generator_power, 82, 1.0f, true);
+  device.set_last_request(LumentreeBle::REQUEST_SYSTEM_STATUS);
+  feed_chunked(device, make_read_frame(0, 95, {{67, (uint16_t) -25}, {54, (uint16_t) -150}, {82, 1200}}));
+
+  EXPECT_NEAR(load_power.state, -25.0f, 0.001f);
+  EXPECT_NEAR(ac_input_current.state, -1.50f, 0.001f);
+  EXPECT_NEAR(generator_power.state, 1200.0f, 0.001f);
+}
+
 }  // namespace esphome::lumentree_ble::testing

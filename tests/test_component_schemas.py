@@ -49,12 +49,16 @@ class TestRegisterSensorDefs:
     def test_register_sensor_defs(self):
         assert "bms_voltage" in sensor.REGISTER_SENSOR_DEFS
         assert "bms_temperature" in sensor.REGISTER_SENSOR_DEFS
-        assert len(sensor.REGISTER_SENSOR_DEFS) == 12
+        assert "cell_voltage_16" in sensor.REGISTER_SENSOR_DEFS
+        assert len(sensor.REGISTER_SENSOR_DEFS) == 40
 
     def test_register_sensor_tuple_structure(self):
-        for key, (register, factor, signed, kwargs) in (
-            sensor.REGISTER_SENSOR_DEFS.items()
-        ):
+        for key, (
+            register,
+            factor,
+            signed,
+            kwargs,
+        ) in sensor.REGISTER_SENSOR_DEFS.items():
             assert isinstance(register, int), key
             assert factor > 0, key
             assert isinstance(signed, bool), key
@@ -62,6 +66,12 @@ class TestRegisterSensorDefs:
 
     def test_no_key_collision_with_sensor_defs(self):
         assert not set(sensor.REGISTER_SENSOR_DEFS) & set(sensor.SENSOR_DEFS)
+        assert not set(sensor.CELL_SUMMARY_DEFS) & set(sensor.SENSOR_DEFS)
+        assert not set(sensor.CELL_SUMMARY_DEFS) & set(sensor.REGISTER_SENSOR_DEFS)
+
+    def test_register_sensor_registers_are_unique(self):
+        registers = [defs[0] for defs in sensor.REGISTER_SENSOR_DEFS.values()]
+        assert len(registers) == len(set(registers))
 
 
 class TestBinarySensorDefs:
@@ -103,7 +113,8 @@ class TestNumberConstants:
         assert number.CONF_BATTERY_CAPACITY_SETTING in number.NUMBERS
         assert number.CONF_LOW_VOLTAGE_CUTOFF_SETTING in number.NUMBERS
         assert number.CONF_MAX_DISCHARGE_CURRENT_SETTING in number.NUMBERS
-        assert len(number.NUMBERS) == 11
+        assert number.CONF_LOW_CAPACITY_CUTOFF_SETTING in number.NUMBERS
+        assert len(number.NUMBERS) == 14
 
     def test_number_registers_are_unique(self):
         registers = [val[0] for val in number.NUMBERS.values()]
@@ -121,7 +132,8 @@ class TestSwitchConstants:
     def test_switches_dict(self):
         assert switch.CONF_AC_CHARGING in switch.SWITCHES
         assert switch.CONF_BEEP in switch.SWITCHES
-        assert len(switch.SWITCHES) == 6
+        assert switch.CONF_AC_COUPLING in switch.SWITCHES
+        assert len(switch.SWITCHES) == 7
 
     def test_switch_addresses_are_unique(self):
         write_registers = [val[0] for val in switch.SWITCHES.values()]

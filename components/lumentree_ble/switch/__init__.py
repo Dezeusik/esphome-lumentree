@@ -15,6 +15,7 @@ CONF_BEEP = "beep"
 CONF_SLEEP_MODE = "sleep_mode"
 CONF_OVERLOAD_AUTO_RESTART = "overload_auto_restart"
 CONF_OVERTEMPERATURE_AUTO_RESTART = "overtemperature_auto_restart"
+CONF_AC_COUPLING = "ac_coupling"
 
 ICON_AC_CHARGING = "mdi:battery-charging-outline"
 ICON_OUTPUT = "mdi:power"
@@ -22,6 +23,7 @@ ICON_BEEP = "mdi:volume-high"
 ICON_SLEEP_MODE = "mdi:power-sleep"
 ICON_OVERLOAD_AUTO_RESTART = "mdi:restart-alert"
 ICON_OVERTEMPERATURE_AUTO_RESTART = "mdi:thermometer-alert"
+ICON_AC_COUPLING = "mdi:solar-power-variant"
 
 # key: [write register, state register]
 SWITCHES = {
@@ -32,6 +34,8 @@ SWITCHES = {
     CONF_OVERLOAD_AUTO_RESTART: [165, 165],
     CONF_OVERTEMPERATURE_AUTO_RESTART: [166, 166],
     CONF_BEEP: [167, 167],
+    # Recovered from the LightEarth app (DeviceAddrConfig)
+    CONF_AC_COUPLING: [124, 124],
 }
 
 ICONS = {
@@ -41,6 +45,7 @@ ICONS = {
     CONF_OVERLOAD_AUTO_RESTART: ICON_OVERLOAD_AUTO_RESTART,
     CONF_OVERTEMPERATURE_AUTO_RESTART: ICON_OVERTEMPERATURE_AUTO_RESTART,
     CONF_BEEP: ICON_BEEP,
+    CONF_AC_COUPLING: ICON_AC_COUPLING,
 }
 
 LumentreeSwitch = lumentree_ble_ns.class_("LumentreeSwitch", switch.Switch)

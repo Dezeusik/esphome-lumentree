@@ -26,6 +26,8 @@ class LumentreeBle :
  public:
   static constexpr uint16_t BMS_REGISTER_START = 185;
   static constexpr uint16_t BMS_REGISTER_COUNT = 13;  // 185-197
+  static constexpr uint16_t CELL_REGISTER_START = 250;
+  static constexpr uint16_t CELL_REGISTER_COUNT = 50;  // 250-299, one cell voltage (mV) per register
 
   enum RequestType {
     REQUEST_SYSTEM_STATUS,
@@ -33,6 +35,7 @@ class LumentreeBle :
     REQUEST_SYSTEM_CONTROL,
     REQUEST_DAILY_STATISTICS,
     REQUEST_BMS,
+    REQUEST_CELLS,
     REQUEST_COMPLETE
   };
 
@@ -142,14 +145,35 @@ class LumentreeBle :
   // Generic register bindings (holding registers, function 0x03)
   void add_number(number::Number *number_entity, uint16_t state_register, float factor) {
     this->number_bindings_.push_back({state_register, factor, number_entity});
+    this->request_optional_block_(state_register);
   }
   void add_switch(switch_::Switch *switch_entity, uint16_t state_register) {
     this->switch_bindings_.push_back({state_register, switch_entity});
+    this->request_optional_block_(state_register);
   }
   void add_register_sensor(sensor::Sensor *sensor_entity, uint16_t state_register, float factor, bool is_signed) {
     this->sensor_bindings_.push_back({state_register, factor, is_signed, sensor_entity});
-    if (state_register >= BMS_REGISTER_START && state_register < BMS_REGISTER_START + BMS_REGISTER_COUNT)
-      this->bms_requested_ = true;
+    this->request_optional_block_(state_register);
+  }
+  void set_min_cell_voltage_sensor(sensor::Sensor *s) {
+    min_cell_voltage_sensor_ = s;
+    cells_requested_ = true;
+  }
+  void set_max_cell_voltage_sensor(sensor::Sensor *s) {
+    max_cell_voltage_sensor_ = s;
+    cells_requested_ = true;
+  }
+  void set_delta_cell_voltage_sensor(sensor::Sensor *s) {
+    delta_cell_voltage_sensor_ = s;
+    cells_requested_ = true;
+  }
+  void set_average_cell_voltage_sensor(sensor::Sensor *s) {
+    average_cell_voltage_sensor_ = s;
+    cells_requested_ = true;
+  }
+  void set_cell_count_sensor(sensor::Sensor *s) {
+    cell_count_sensor_ = s;
+    cells_requested_ = true;
   }
 
   void set_operation_mode_select(select::Select *operation_mode_select) {
@@ -226,6 +250,20 @@ class LumentreeBle :
   std::vector<SwitchBinding> switch_bindings_;
   std::vector<SensorBinding> sensor_bindings_;
   bool bms_requested_{false};
+  bool cells_requested_{false};
+
+  sensor::Sensor *min_cell_voltage_sensor_{nullptr};
+  sensor::Sensor *max_cell_voltage_sensor_{nullptr};
+  sensor::Sensor *delta_cell_voltage_sensor_{nullptr};
+  sensor::Sensor *average_cell_voltage_sensor_{nullptr};
+  sensor::Sensor *cell_count_sensor_{nullptr};
+
+  void request_optional_block_(uint16_t state_register) {
+    if (state_register >= BMS_REGISTER_START && state_register < BMS_REGISTER_START + BMS_REGISTER_COUNT)
+      this->bms_requested_ = true;
+    if (state_register >= CELL_REGISTER_START && state_register < CELL_REGISTER_START + CELL_REGISTER_COUNT)
+      this->cells_requested_ = true;
+  }
 
   select::Select *operation_mode_select_{nullptr};
 
@@ -241,6 +279,7 @@ class LumentreeBle :
   void decode_system_control_registers_(const std::vector<uint8_t> &data);
   void decode_daily_statistics_registers_(const std::vector<uint8_t> &data);
   void decode_bms_registers_(const std::vector<uint8_t> &data);
+  void decode_cell_registers_(const std::vector<uint8_t> &data);
   void publish_register_bindings_(uint16_t register_address, uint16_t value);
   void advance_request_();
   bool handle_non_read_frame_(const uint8_t *data, uint16_t length);

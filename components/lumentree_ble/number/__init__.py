@@ -10,6 +10,7 @@ from esphome.const import (
     ENTITY_CATEGORY_CONFIG,
     ICON_EMPTY,
     UNIT_AMPERE,
+    UNIT_PERCENT,
     UNIT_VOLT,
     UNIT_WATT,
 )
@@ -38,6 +39,9 @@ CONF_LOW_VOLTAGE_CUTOFF_SETTING = "low_voltage_cutoff_setting"
 CONF_BATTERY_RECOVERY_VOLTAGE_SETTING = "battery_recovery_voltage_setting"
 CONF_EQUALIZATION_INTERVAL_SETTING = "equalization_interval_setting"
 CONF_EQUALIZATION_DURATION_SETTING = "equalization_duration_setting"
+CONF_LOW_CAPACITY_CUTOFF_SETTING = "low_capacity_cutoff_setting"
+CONF_PROTECTING_RECOVERY_POINT_SETTING = "protecting_recovery_point_setting"
+CONF_CT_TRICKLE_FEED_SETTING = "ct_trickle_feed_setting"
 
 UNIT_DAYS = "d"
 UNIT_MINUTE = "min"
@@ -55,6 +59,10 @@ NUMBERS = {
     CONF_BATTERY_RECOVERY_VOLTAGE_SETTING: [115, 0.01, 2],
     CONF_EQUALIZATION_INTERVAL_SETTING: [148, 1.0, 2],
     CONF_EQUALIZATION_DURATION_SETTING: [149, 1.0, 2],
+    # Registers below were recovered from the LightEarth app (DeviceAddrConfig)
+    CONF_LOW_CAPACITY_CUTOFF_SETTING: [111, 1.0, 2],
+    CONF_PROTECTING_RECOVERY_POINT_SETTING: [112, 1.0, 2],
+    CONF_CT_TRICKLE_FEED_SETTING: [147, 1.0, 2],
 }
 
 LumentreeNumber = lumentree_ble_ns.class_(
@@ -177,6 +185,38 @@ CONFIG_SCHEMA = LUMENTREE_BLE_COMPONENT_SCHEMA.extend(
                 cv.Optional(CONF_STEP, default=1.0): cv.float_,
                 cv.Optional(
                     CONF_UNIT_OF_MEASUREMENT, default=UNIT_MINUTE
+                ): cv.string_strict,
+            }
+        ),
+        cv.Optional(CONF_LOW_CAPACITY_CUTOFF_SETTING): LUMENTREE_NUMBER_SCHEMA.extend(
+            {
+                cv.Optional(CONF_MIN_VALUE, default=0.0): cv.float_,
+                cv.Optional(CONF_MAX_VALUE, default=100.0): cv.float_,
+                cv.Optional(CONF_STEP, default=1.0): cv.float_,
+                cv.Optional(
+                    CONF_UNIT_OF_MEASUREMENT, default=UNIT_PERCENT
+                ): cv.string_strict,
+            }
+        ),
+        cv.Optional(
+            CONF_PROTECTING_RECOVERY_POINT_SETTING
+        ): LUMENTREE_NUMBER_SCHEMA.extend(
+            {
+                cv.Optional(CONF_MIN_VALUE, default=0.0): cv.float_,
+                cv.Optional(CONF_MAX_VALUE, default=100.0): cv.float_,
+                cv.Optional(CONF_STEP, default=1.0): cv.float_,
+                cv.Optional(
+                    CONF_UNIT_OF_MEASUREMENT, default=UNIT_PERCENT
+                ): cv.string_strict,
+            }
+        ),
+        cv.Optional(CONF_CT_TRICKLE_FEED_SETTING): LUMENTREE_NUMBER_SCHEMA.extend(
+            {
+                cv.Optional(CONF_MIN_VALUE, default=0.0): cv.float_,
+                cv.Optional(CONF_MAX_VALUE, default=1000.0): cv.float_,
+                cv.Optional(CONF_STEP, default=1.0): cv.float_,
+                cv.Optional(
+                    CONF_UNIT_OF_MEASUREMENT, default=UNIT_WATT
                 ): cv.string_strict,
             }
         ),
