@@ -140,6 +140,31 @@ sensor:
       name: "today battery discharge"
     grid_export:
       name: "grid export"
+    max_discharge_current_limit:
+      name: "max discharge current limit"
+    # Lithium BMS block (registers 185-197), requested only if one of these is configured
+    bms_protocol:
+      name: "bms protocol"
+    bms_charging_voltage:
+      name: "bms charging voltage"
+    bms_discharge_voltage:
+      name: "bms discharge voltage"
+    bms_charging_current_limit:
+      name: "bms charging current limit"
+    bms_discharge_current_limit:
+      name: "bms discharge current limit"
+    bms_soc:
+      name: "bms soc"
+    bms_voltage:
+      name: "bms voltage"
+    bms_current:
+      name: "bms current"
+    bms_temperature:
+      name: "bms temperature"
+    bms_alarm:
+      name: "bms alarm"
+    bms_fault:
+      name: "bms fault"
 
 text_sensor:
   - platform: lumentree_ble
@@ -164,6 +189,14 @@ switch:
       name: "ac charging"
     output:
       name: "output"
+    beep:
+      name: "beep"
+    sleep_mode:
+      name: "sleep mode"
+    overload_auto_restart:
+      name: "overload auto restart"
+    overtemperature_auto_restart:
+      name: "overtemperature auto restart"
 
   - platform: ble_client
     ble_client_id: client0
@@ -191,3 +224,15 @@ number:
     battery_capacity_setting:
       name: "battery capacity setting"
       unit_of_measurement: "Ah"
+    max_charge_current_setting:
+      name: "max charge current setting"
+    max_discharge_current_setting:
+      name: "max discharge current setting"
+    low_voltage_cutoff_setting:
+      name: "low voltage cutoff setting"
+    battery_recovery_voltage_setting:
+      name: "battery recovery voltage setting"
+    equalization_interval_setting:
+      name: "equalization interval setting"
+    equalization_duration_setting:
+      name: "equalization duration setting"

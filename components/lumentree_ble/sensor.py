@@ -3,6 +3,7 @@ from esphome.components import sensor
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_BATTERY_VOLTAGE,
+    DEVICE_CLASS_BATTERY,
     DEVICE_CLASS_CURRENT,
     DEVICE_CLASS_ENERGY,
     DEVICE_CLASS_FREQUENCY,
@@ -62,6 +63,20 @@ CONF_TODAY_GRID_CONSUMPTION = "today_grid_consumption"
 CONF_TODAY_BATTERY_CHARGING = "today_battery_charging"
 CONF_TODAY_BATTERY_DISCHARGE = "today_battery_discharge"
 CONF_GRID_EXPORT = "grid_export"
+
+# Lithium BMS block (holding registers 185-197) and battery limits
+CONF_BMS_PROTOCOL = "bms_protocol"
+CONF_BMS_CHARGING_VOLTAGE = "bms_charging_voltage"
+CONF_BMS_DISCHARGE_VOLTAGE = "bms_discharge_voltage"
+CONF_BMS_CHARGING_CURRENT_LIMIT = "bms_charging_current_limit"
+CONF_BMS_DISCHARGE_CURRENT_LIMIT = "bms_discharge_current_limit"
+CONF_BMS_SOC = "bms_soc"
+CONF_BMS_VOLTAGE = "bms_voltage"
+CONF_BMS_CURRENT = "bms_current"
+CONF_BMS_TEMPERATURE = "bms_temperature"
+CONF_BMS_ALARM = "bms_alarm"
+CONF_BMS_FAULT = "bms_fault"
+CONF_MAX_DISCHARGE_CURRENT_LIMIT = "max_discharge_current_limit"
 
 LumentreeBle = lumentree_ble_ns.class_("LumentreeBle")
 
@@ -250,10 +265,128 @@ SENSOR_DEFS = {
     },
 }
 
+_DIAGNOSTIC_CODE = {
+    "accuracy_decimals": 0,
+    "entity_category": ENTITY_CATEGORY_DIAGNOSTIC,
+}
+
+# Sensors bound generically to a holding register:
+# key: (register, factor, signed, sensor_schema kwargs)
+REGISTER_SENSOR_DEFS = {
+    CONF_BMS_PROTOCOL: (185, 1.0, False, _DIAGNOSTIC_CODE),
+    CONF_BMS_CHARGING_VOLTAGE: (
+        186,
+        0.01,
+        False,
+        {
+            "unit_of_measurement": UNIT_VOLT,
+            "accuracy_decimals": 2,
+            "device_class": DEVICE_CLASS_VOLTAGE,
+            "state_class": STATE_CLASS_MEASUREMENT,
+        },
+    ),
+    CONF_BMS_DISCHARGE_VOLTAGE: (
+        187,
+        0.01,
+        False,
+        {
+            "unit_of_measurement": UNIT_VOLT,
+            "accuracy_decimals": 2,
+            "device_class": DEVICE_CLASS_VOLTAGE,
+            "state_class": STATE_CLASS_MEASUREMENT,
+        },
+    ),
+    CONF_BMS_CHARGING_CURRENT_LIMIT: (
+        188,
+        1.0,
+        False,
+        {
+            "unit_of_measurement": UNIT_AMPERE,
+            "accuracy_decimals": 0,
+            "device_class": DEVICE_CLASS_CURRENT,
+            "state_class": STATE_CLASS_MEASUREMENT,
+        },
+    ),
+    CONF_BMS_DISCHARGE_CURRENT_LIMIT: (
+        189,
+        1.0,
+        False,
+        {
+            "unit_of_measurement": UNIT_AMPERE,
+            "accuracy_decimals": 0,
+            "device_class": DEVICE_CLASS_CURRENT,
+            "state_class": STATE_CLASS_MEASUREMENT,
+        },
+    ),
+    CONF_BMS_SOC: (
+        190,
+        1.0,
+        False,
+        {
+            "unit_of_measurement": UNIT_PERCENT,
+            "accuracy_decimals": 0,
+            "device_class": DEVICE_CLASS_BATTERY,
+            "state_class": STATE_CLASS_MEASUREMENT,
+        },
+    ),
+    CONF_BMS_VOLTAGE: (
+        191,
+        0.01,
+        False,
+        {
+            "unit_of_measurement": UNIT_VOLT,
+            "accuracy_decimals": 2,
+            "device_class": DEVICE_CLASS_VOLTAGE,
+            "state_class": STATE_CLASS_MEASUREMENT,
+        },
+    ),
+    CONF_BMS_CURRENT: (
+        192,
+        1.0,
+        True,
+        {
+            "unit_of_measurement": UNIT_AMPERE,
+            "accuracy_decimals": 0,
+            "device_class": DEVICE_CLASS_CURRENT,
+            "state_class": STATE_CLASS_MEASUREMENT,
+        },
+    ),
+    CONF_BMS_TEMPERATURE: (
+        193,
+        0.1,
+        True,
+        {
+            "unit_of_measurement": UNIT_CELSIUS,
+            "accuracy_decimals": 1,
+            "device_class": DEVICE_CLASS_TEMPERATURE,
+            "state_class": STATE_CLASS_MEASUREMENT,
+        },
+    ),
+    CONF_BMS_ALARM: (196, 1.0, False, _DIAGNOSTIC_CODE),
+    CONF_BMS_FAULT: (197, 1.0, False, _DIAGNOSTIC_CODE),
+    CONF_MAX_DISCHARGE_CURRENT_LIMIT: (
+        157,
+        1.0,
+        False,
+        {
+            "unit_of_measurement": UNIT_AMPERE,
+            "accuracy_decimals": 0,
+            "device_class": DEVICE_CLASS_CURRENT,
+            "entity_category": ENTITY_CATEGORY_DIAGNOSTIC,
+        },
+    ),
+}
+
 CONFIG_SCHEMA = LUMENTREE_BLE_COMPONENT_SCHEMA.extend(
     {
-        cv.Optional(key): sensor.sensor_schema(**kwargs)
-        for key, kwargs in SENSOR_DEFS.items()
+        **{
+            cv.Optional(key): sensor.sensor_schema(**kwargs)
+            for key, kwargs in SENSOR_DEFS.items()
+        },
+        **{
+            cv.Optional(key): sensor.sensor_schema(**defs[3])
+            for key, defs in REGISTER_SENSOR_DEFS.items()
+        },
     }
 )
 
@@ -265,3 +398,7 @@ async def to_code(config):
             conf = config[key]
             sens = await sensor.new_sensor(conf)
             cg.add(getattr(hub, f"set_{key}_sensor")(sens))
+    for key, (register, factor, signed, _) in REGISTER_SENSOR_DEFS.items():
+        if key in config:
+            sens = await sensor.new_sensor(config[key])
+            cg.add(hub.add_register_sensor(sens, register, factor, signed))

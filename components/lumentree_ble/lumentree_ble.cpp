@@ -55,6 +55,8 @@ static const uint16_t LUMENTREE_NOTIFY_CHARACTERISTIC_UUID = 0xFFE1;
 static const uint8_t LUMENTREE_MODBUS_DEVICE_ADDR = 0x01;
 static const uint8_t LUMENTREE_MODBUS_FUNCTION_READ = 0x03;
 static const uint8_t LUMENTREE_MODBUS_FUNCTION_READ_INPUT = 0x04;
+static const uint8_t LUMENTREE_MODBUS_FUNCTION_WRITE_SINGLE = 0x06;
+static const uint8_t LUMENTREE_MODBUS_FUNCTION_WRITE_MULTIPLE = 0x10;
 
 static const uint8_t MAX_RESPONSE_SIZE = 255;
 static const uint32_t FRAME_TIMEOUT_MS = 5000;
@@ -129,7 +131,44 @@ void LumentreeBle::update() {
 void LumentreeBle::update() {}
 #endif  // USE_ESP32
 
+bool LumentreeBle::handle_non_read_frame_(const uint8_t *data, uint16_t length) {
+  if (length < 2 || data[0] != LUMENTREE_MODBUS_DEVICE_ADDR)
+    return false;
+
+  const uint8_t function = data[1];
+
+  // Exception response: [addr][function | 0x80][exception code][crc lo][crc hi]
+  if ((function & 0x80) && length == 5) {
+    if (crc16(data, 3, 0xFFFF, 0xa001, false, false) != (uint16_t) (data[3] | (data[4] << 8)))
+      return false;
+    const uint8_t original = function & 0x7F;
+    ESP_LOGW(TAG, "MODBUS exception 0x%02X for function 0x%02X", data[2], original);
+    if (original == LUMENTREE_MODBUS_FUNCTION_READ || original == LUMENTREE_MODBUS_FUNCTION_READ_INPUT) {
+      // Don't stall the request sequence if the device rejects a register range (e.g. no BMS)
+      this->frame_buffer_.clear();
+      this->advance_request_();
+    }
+    return true;
+  }
+
+  // Write acknowledgements (echo): [addr][0x06|0x10][reg hi][reg lo][val/count hi][val/count lo][crc lo][crc hi]
+  if ((function == LUMENTREE_MODBUS_FUNCTION_WRITE_SINGLE || function == LUMENTREE_MODBUS_FUNCTION_WRITE_MULTIPLE) &&
+      length == 8) {
+    if (crc16(data, 6, 0xFFFF, 0xa001, false, false) != (uint16_t) (data[6] | (data[7] << 8)))
+      return false;
+    ESP_LOGD(TAG, "Write acknowledged (function 0x%02X, register %u)", function, (data[2] << 8) | data[3]);
+    return true;
+  }
+
+  return false;
+}
+
 void LumentreeBle::assemble(const uint8_t *data, uint16_t length) {
+  // Write acks and exception responses are short single-packet frames; handle them
+  // without touching a read response that may be assembling in the buffer.
+  if (this->handle_non_read_frame_(data, length))
+    return;
+
   uint32_t now = millis();
 
   // Check for frame timeout - clear stale data
@@ -241,8 +280,12 @@ void LumentreeBle::dump_config() {
   LOG_TEXT_SENSOR("  ", "Operation Mode", this->operation_mode_text_sensor_);
   LOG_TEXT_SENSOR("  ", "Device Model", this->device_model_text_sensor_);
 
-  LOG_SWITCH("", "AC charging", this->ac_charging_switch_);
-  LOG_SWITCH("", "Output", this->output_switch_);
+  for (auto &binding : this->switch_bindings_) {
+    LOG_SWITCH("  ", "Switch", binding.entity);
+  }
+  for (auto &binding : this->sensor_bindings_) {
+    LOG_SENSOR("  ", "Register Sensor", binding.entity);
+  }
 }
 
 #ifdef USE_ESP32
@@ -326,20 +369,49 @@ void LumentreeBle::decode_(const std::vector<uint8_t> &data) {
     case REQUEST_DAILY_STATISTICS:
       this->decode_daily_statistics_registers_(data);
       break;
+    case REQUEST_BMS:
+      this->decode_bms_registers_(data);
+      break;
     default:
       ESP_LOGW(TAG, "Unknown request type: %d", this->current_request_type_);
       break;
   }
 
+  this->advance_request_();
+}
+
+void LumentreeBle::advance_request_() {
+  if (this->current_request_type_ >= REQUEST_COMPLETE)
+    return;
+
   // Move to next request
   this->current_request_type_ = static_cast<RequestType>(this->current_request_type_ + 1);
 
-  // Send next request after a short delay
+  // The BMS block is only requested if at least one BMS entity is configured
+  if (this->current_request_type_ == REQUEST_BMS && !this->bms_requested_)
+    this->current_request_type_ = REQUEST_COMPLETE;
+
+    // Send next request after a short delay
 #ifdef USE_ESP32
   if (this->current_request_type_ < REQUEST_COMPLETE) {
     this->set_timeout("next_request", 100, [this]() { this->send_next_request_(); });
   }
 #endif
+}
+
+void LumentreeBle::publish_register_bindings_(uint16_t register_address, uint16_t value) {
+  for (auto &binding : this->number_bindings_) {
+    if (binding.state_register == register_address)
+      binding.entity->publish_state(value * binding.factor);
+  }
+  for (auto &binding : this->switch_bindings_) {
+    if (binding.state_register == register_address)
+      binding.entity->publish_state(value == 1);
+  }
+  for (auto &binding : this->sensor_bindings_) {
+    if (binding.state_register == register_address)
+      binding.entity->publish_state((binding.is_signed ? (float) (int16_t) value : (float) value) * binding.factor);
+  }
 }
 
 void LumentreeBle::decode_system_status_registers_(const std::vector<uint8_t> &data) {
@@ -352,13 +424,14 @@ void LumentreeBle::decode_system_status_registers_(const std::vector<uint8_t> &d
 
   // 0x03-0x07: Serial Number (5 registers, ASCII)
   std::string serial_number(data.begin() + 9, data.begin() + 19);
-  serial_number.erase(serial_number.find_last_not_of(" \0") + 1);
+  serial_number.erase(serial_number.find_last_not_of(std::string(" \0", 2)) + 1);
   ESP_LOGI(TAG, "Serial Number: %s", serial_number.c_str());
   this->publish_state_(this->serial_number_text_sensor_, serial_number.empty() ? "Unknown" : serial_number);
 
   // Register offsets in the data array (3 bytes header + register_index * 2)
   for (uint8_t register_index = 0; register_index < byte_count / 2; register_index++) {
     uint16_t register_value = lumentree_get_16bit(3 + register_index * 2);
+    this->publish_register_bindings_(register_index, register_value);
 
     switch (register_index) {
       case 0:  // 0x00: Device Type
@@ -476,6 +549,7 @@ void LumentreeBle::decode_battery_config_registers_(const std::vector<uint8_t> &
   for (uint8_t i = 0; i < byte_count / 2; i++) {
     uint16_t register_value = lumentree_get_16bit(3 + i * 2);
     uint8_t register_address = 101 + i;  // Actual register address
+    this->publish_register_bindings_(register_address, register_value);
 
     switch (register_address) {
       case 101:  // Equalization Voltage
@@ -505,8 +579,6 @@ void LumentreeBle::decode_battery_config_registers_(const std::vector<uint8_t> &
       case 120:  // Charge from AC
         ESP_LOGI(TAG, "Charge from AC: %s",
                  register_value == 1 ? LOG_STR_LITERAL("Enabled") : LOG_STR_LITERAL("Disabled"));
-        // Sync AC charging switch
-        this->publish_state_(this->ac_charging_switch_, register_value == 1);
         break;
       case 123:  // AC Output Frequency
         ESP_LOGI(TAG, "AC Output Frequency: %s",
@@ -576,6 +648,7 @@ void LumentreeBle::decode_system_control_registers_(const std::vector<uint8_t> &
   for (uint8_t i = 0; i < byte_count / 2; i++) {
     uint16_t register_value = lumentree_get_16bit(3 + i * 2);
     uint8_t register_address = 160 + i;  // Actual register address
+    this->publish_register_bindings_(register_address, register_value);
 
     switch (register_address) {
       case 160:  // Real Time Clock
@@ -600,8 +673,6 @@ void LumentreeBle::decode_system_control_registers_(const std::vector<uint8_t> &
         break;
       case 170:  // Online Mode
         ESP_LOGI(TAG, "Online Mode: %s", register_value == 1 ? LOG_STR_LITERAL("Online") : LOG_STR_LITERAL("Offline"));
-        // Sync output switch
-        this->publish_state_(this->output_switch_, register_value == 1);
         break;
       case 177:  // Maximum Current 5
         ESP_LOGI(TAG, "Maximum Current 5: %d A", register_value);
@@ -683,6 +754,10 @@ void LumentreeBle::send_next_request_() {
       ESP_LOGI(TAG, "Requesting Daily Statistics registers (0-7)");
       this->read_registers(LUMENTREE_MODBUS_FUNCTION_READ_INPUT, 0, 8);
       break;
+    case REQUEST_BMS:
+      ESP_LOGI(TAG, "Requesting Lithium BMS registers (185-197)");
+      this->read_registers(LUMENTREE_MODBUS_FUNCTION_READ, BMS_REGISTER_START, BMS_REGISTER_COUNT);
+      break;
     case REQUEST_COMPLETE:
       ESP_LOGI(TAG, "All register requests completed");
       break;
@@ -698,7 +773,7 @@ void LumentreeBle::write_register(uint8_t register_address, uint16_t value) {
 
   std::vector<uint8_t> payload;
   payload.push_back(LUMENTREE_MODBUS_DEVICE_ADDR);
-  payload.push_back(0x06);
+  payload.push_back(LUMENTREE_MODBUS_FUNCTION_WRITE_SINGLE);
   payload.push_back(0x00);
   payload.push_back(register_address);
   payload.push_back((value >> 8) & 0xFF);
@@ -715,7 +790,7 @@ void LumentreeBle::write_multiple_registers(uint8_t start_register, const std::v
 
   std::vector<uint8_t> payload;
   payload.push_back(LUMENTREE_MODBUS_DEVICE_ADDR);
-  payload.push_back(0x10);  // Function code 0x10 (Write Multiple Registers)
+  payload.push_back(LUMENTREE_MODBUS_FUNCTION_WRITE_MULTIPLE);
   payload.push_back(0x00);
   payload.push_back(start_register);
   payload.push_back(0x00);
@@ -786,6 +861,18 @@ void LumentreeBle::decode_daily_statistics_registers_(const std::vector<uint8_t>
         ESP_LOGVV(TAG, "Daily Statistics Register %d: 0x%04X (%d)", register_index, register_value, register_value);
         break;
     }
+  }
+}
+
+void LumentreeBle::decode_bms_registers_(const std::vector<uint8_t> &data) {
+  uint8_t byte_count = data[2];
+  ESP_LOGI(TAG, "Decoding Lithium BMS registers (185-197)");
+
+  for (uint8_t i = 0; i < byte_count / 2; i++) {
+    uint16_t register_value = (uint16_t(data[3 + i * 2]) << 8) | uint16_t(data[3 + i * 2 + 1]);
+    uint16_t register_address = BMS_REGISTER_START + i;
+    ESP_LOGV(TAG, "BMS Register %u: 0x%04X (%u)", register_address, register_value, register_value);
+    this->publish_register_bindings_(register_address, register_value);
   }
 }
 

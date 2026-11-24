@@ -172,11 +172,26 @@ esphome run esp32-ble-example.yaml
 - Grid-tied values are only meaningful when grid is connected
 - PV values are only meaningful during daylight hours
 
+### Number entities show "unknown"
+
+Since this version all `number` entities are populated with the value read back from the
+inverter on every poll. Older versions only wrote the value and never published a state.
+
+### BMS sensors stay empty
+
+The lithium BMS block (registers 185-197) is only populated when a lithium battery
+communicates with the inverter via its BMS protocol. If the inverter rejects the request,
+a `MODBUS exception` warning is logged and the remaining requests continue normally.
+
 ## Known limitations
 
 - Single connection only - the inverter accepts only one BLE connection at a time
 - Limited to ESP32 devices (BLE not available on ESP8266)
 - Protocol reverse-engineered and may be incomplete for all inverter variants
+- The `output` switch writes register 121 but reads its state from register 170 ("Online Mode");
+  this mapping is unverified
+- Default min/max ranges of the new battery `number` entities are conservative guesses;
+  check them against your battery's datasheet before writing values
 
 ## References
 

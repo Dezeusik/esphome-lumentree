@@ -45,6 +45,25 @@ class TestSensorDefs:
             assert isinstance(kwargs, dict), f"{key} value must be a kwargs dict"
 
 
+class TestRegisterSensorDefs:
+    def test_register_sensor_defs(self):
+        assert "bms_voltage" in sensor.REGISTER_SENSOR_DEFS
+        assert "bms_temperature" in sensor.REGISTER_SENSOR_DEFS
+        assert len(sensor.REGISTER_SENSOR_DEFS) == 12
+
+    def test_register_sensor_tuple_structure(self):
+        for key, (register, factor, signed, kwargs) in (
+            sensor.REGISTER_SENSOR_DEFS.items()
+        ):
+            assert isinstance(register, int), key
+            assert factor > 0, key
+            assert isinstance(signed, bool), key
+            assert isinstance(kwargs, dict), key
+
+    def test_no_key_collision_with_sensor_defs(self):
+        assert not set(sensor.REGISTER_SENSOR_DEFS) & set(sensor.SENSOR_DEFS)
+
+
 class TestBinarySensorDefs:
     def test_binary_sensor_defs_completeness(self):
         assert binary_sensor.CONF_GRID_CONNECTED in binary_sensor.BINARY_SENSOR_DEFS
@@ -82,7 +101,13 @@ class TestNumberConstants:
         assert number.CONF_CHARGING_TARGET_VOLTAGE_SETTING in number.NUMBERS
         assert number.CONF_FLOAT_CHARGE_VOLTAGE_SETTING in number.NUMBERS
         assert number.CONF_BATTERY_CAPACITY_SETTING in number.NUMBERS
-        assert len(number.NUMBERS) == 5
+        assert number.CONF_LOW_VOLTAGE_CUTOFF_SETTING in number.NUMBERS
+        assert number.CONF_MAX_DISCHARGE_CURRENT_SETTING in number.NUMBERS
+        assert len(number.NUMBERS) == 11
+
+    def test_number_registers_are_unique(self):
+        registers = [val[0] for val in number.NUMBERS.values()]
+        assert len(registers) == len(set(registers))
 
     def test_number_tuple_structure(self):
         for val in number.NUMBERS.values():
@@ -95,11 +120,17 @@ class TestNumberConstants:
 class TestSwitchConstants:
     def test_switches_dict(self):
         assert switch.CONF_AC_CHARGING in switch.SWITCHES
-        assert len(switch.SWITCHES) == 2
+        assert switch.CONF_BEEP in switch.SWITCHES
+        assert len(switch.SWITCHES) == 6
 
     def test_switch_addresses_are_unique(self):
-        addresses = list(switch.SWITCHES.values())
-        assert len(addresses) == len(set(addresses))
+        write_registers = [val[0] for val in switch.SWITCHES.values()]
+        state_registers = [val[1] for val in switch.SWITCHES.values()]
+        assert len(write_registers) == len(set(write_registers))
+        assert len(state_registers) == len(set(state_registers))
+
+    def test_every_switch_has_an_icon(self):
+        assert set(switch.ICONS) == set(switch.SWITCHES)
 
 
 class TestSelectConstants:

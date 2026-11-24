@@ -24,11 +24,15 @@ class LumentreeBle :
 #endif
     public PollingComponent {
  public:
+  static constexpr uint16_t BMS_REGISTER_START = 185;
+  static constexpr uint16_t BMS_REGISTER_COUNT = 13;  // 185-197
+
   enum RequestType {
     REQUEST_SYSTEM_STATUS,
     REQUEST_BATTERY_CONFIG,
     REQUEST_SYSTEM_CONTROL,
     REQUEST_DAILY_STATISTICS,
+    REQUEST_BMS,
     REQUEST_COMPLETE
   };
 
@@ -135,24 +139,18 @@ class LumentreeBle :
     restart_device_button_ = restart_device_button;
   }
 
-  void set_power_output_setting_number(number::Number *power_output_setting_number) {
-    power_output_setting_number_ = power_output_setting_number;
+  // Generic register bindings (holding registers, function 0x03)
+  void add_number(number::Number *number_entity, uint16_t state_register, float factor) {
+    this->number_bindings_.push_back({state_register, factor, number_entity});
   }
-  void set_equalization_voltage_setting_number(number::Number *equalization_voltage_setting_number) {
-    equalization_voltage_setting_number_ = equalization_voltage_setting_number;
+  void add_switch(switch_::Switch *switch_entity, uint16_t state_register) {
+    this->switch_bindings_.push_back({state_register, switch_entity});
   }
-  void set_charging_target_voltage_setting_number(number::Number *charging_target_voltage_setting_number) {
-    charging_target_voltage_setting_number_ = charging_target_voltage_setting_number;
+  void add_register_sensor(sensor::Sensor *sensor_entity, uint16_t state_register, float factor, bool is_signed) {
+    this->sensor_bindings_.push_back({state_register, factor, is_signed, sensor_entity});
+    if (state_register >= BMS_REGISTER_START && state_register < BMS_REGISTER_START + BMS_REGISTER_COUNT)
+      this->bms_requested_ = true;
   }
-  void set_float_charge_voltage_setting_number(number::Number *float_charge_voltage_setting_number) {
-    float_charge_voltage_setting_number_ = float_charge_voltage_setting_number;
-  }
-  void set_battery_capacity_setting_number(number::Number *battery_capacity_setting_number) {
-    battery_capacity_setting_number_ = battery_capacity_setting_number;
-  }
-
-  void set_ac_charging_switch(switch_::Switch *ac_charging_switch) { ac_charging_switch_ = ac_charging_switch; }
-  void set_output_switch(switch_::Switch *output_switch) { output_switch_ = output_switch; }
 
   void set_operation_mode_select(select::Select *operation_mode_select) {
     operation_mode_select_ = operation_mode_select;
@@ -209,14 +207,25 @@ class LumentreeBle :
   button::Button *factory_reset_button_{nullptr};
   button::Button *restart_device_button_{nullptr};
 
-  number::Number *power_output_setting_number_{nullptr};
-  number::Number *equalization_voltage_setting_number_{nullptr};
-  number::Number *charging_target_voltage_setting_number_{nullptr};
-  number::Number *float_charge_voltage_setting_number_{nullptr};
-  number::Number *battery_capacity_setting_number_{nullptr};
-
-  switch_::Switch *ac_charging_switch_{nullptr};
-  switch_::Switch *output_switch_{nullptr};
+  struct NumberBinding {
+    uint16_t state_register;
+    float factor;
+    number::Number *entity;
+  };
+  struct SwitchBinding {
+    uint16_t state_register;
+    switch_::Switch *entity;
+  };
+  struct SensorBinding {
+    uint16_t state_register;
+    float factor;
+    bool is_signed;
+    sensor::Sensor *entity;
+  };
+  std::vector<NumberBinding> number_bindings_;
+  std::vector<SwitchBinding> switch_bindings_;
+  std::vector<SensorBinding> sensor_bindings_;
+  bool bms_requested_{false};
 
   select::Select *operation_mode_select_{nullptr};
 
@@ -231,6 +240,10 @@ class LumentreeBle :
   void decode_battery_config_registers_(const std::vector<uint8_t> &data);
   void decode_system_control_registers_(const std::vector<uint8_t> &data);
   void decode_daily_statistics_registers_(const std::vector<uint8_t> &data);
+  void decode_bms_registers_(const std::vector<uint8_t> &data);
+  void publish_register_bindings_(uint16_t register_address, uint16_t value);
+  void advance_request_();
+  bool handle_non_read_frame_(const uint8_t *data, uint16_t length);
   void publish_state_(binary_sensor::BinarySensor *binary_sensor, const bool &state);
   void publish_state_(sensor::Sensor *sensor, float value);
   void publish_state_(text_sensor::TextSensor *text_sensor, const std::string &state);
